@@ -1,0 +1,114 @@
+/* =====================================================================
+   PROJECT: Sales Data Analysis
+   DATASET: sales_data.csv  (load into a table called `sales`)
+   STACK  : SQL + Excel + Power BI
+   =====================================================================
+   Suggested table schema (MySQL / PostgreSQL / SQL Server compatible):
+
+   CREATE TABLE sales (
+       OrderID        VARCHAR(15) PRIMARY KEY,
+       OrderDate      DATE,
+       Region         VARCHAR(20),
+       Category       VARCHAR(30),
+       Product        VARCHAR(50),
+       Quantity       INT,
+       UnitPrice      DECIMAL(10,2),
+       DiscountPct    DECIMAL(5,2),
+       Revenue        DECIMAL(12,2),
+       Cost           DECIMAL(12,2),
+       Profit         DECIMAL(12,2),
+       PaymentMethod  VARCHAR(20),
+       CustomerID     VARCHAR(15)
+   );
+   -- Load with: LOAD DATA / BULK INSERT / your DB's CSV import tool
+   ===================================================================== */
+
+-- 1. Overall KPIs: total revenue, profit, orders, avg order value
+SELECT
+    COUNT(DISTINCT OrderID)        AS total_orders,
+    SUM(Revenue)                   AS total_revenue,
+    SUM(Profit)                    AS total_profit,
+    ROUND(SUM(Profit)/SUM(Revenue)*100, 2) AS profit_margin_pct,
+    ROUND(SUM(Revenue)/COUNT(DISTINCT OrderID), 2) AS avg_order_value
+FROM sales;
+
+-- 2. Monthly revenue & profit trend
+SELECT
+    DATE_FORMAT(OrderDate, '%Y-%m') AS month,
+    SUM(Revenue) AS monthly_revenue,
+    SUM(Profit)  AS monthly_profit,
+    COUNT(DISTINCT OrderID) AS orders
+FROM sales
+GROUP BY DATE_FORMAT(OrderDate, '%Y-%m')
+ORDER BY month;
+
+-- 3. Revenue by region
+SELECT Region,
+       SUM(Revenue) AS revenue,
+       SUM(Profit)  AS profit,
+       COUNT(DISTINCT OrderID) AS orders
+FROM sales
+GROUP BY Region
+ORDER BY revenue DESC;
+
+-- 4. Top 10 best-selling products by revenue
+SELECT Product, Category,
+       SUM(Quantity) AS units_sold,
+       SUM(Revenue)  AS revenue
+FROM sales
+GROUP BY Product, Category
+ORDER BY revenue DESC
+LIMIT 10;
+
+-- 5. Category-wise profit margin
+SELECT Category,
+       SUM(Revenue) AS revenue,
+       SUM(Profit)  AS profit,
+       ROUND(SUM(Profit)/SUM(Revenue)*100, 2) AS margin_pct
+FROM sales
+GROUP BY Category
+ORDER BY margin_pct DESC;
+
+-- 6. Impact of discounting on order volume & margin
+SELECT DiscountPct,
+       COUNT(DISTINCT OrderID) AS orders,
+       SUM(Revenue) AS revenue,
+       ROUND(SUM(Profit)/SUM(Revenue)*100, 2) AS margin_pct
+FROM sales
+GROUP BY DiscountPct
+ORDER BY DiscountPct;
+
+-- 7. Top 10 customers by lifetime revenue (RFM-style building block)
+SELECT CustomerID,
+       COUNT(DISTINCT OrderID) AS orders,
+       SUM(Revenue) AS lifetime_revenue,
+       MAX(OrderDate) AS last_order_date
+FROM sales
+GROUP BY CustomerID
+ORDER BY lifetime_revenue DESC
+LIMIT 10;
+
+-- 8. Preferred payment methods
+SELECT PaymentMethod,
+       COUNT(DISTINCT OrderID) AS orders,
+       SUM(Revenue) AS revenue,
+       ROUND(COUNT(DISTINCT OrderID) * 100.0 / (SELECT COUNT(DISTINCT OrderID) FROM sales), 2) AS pct_of_orders
+FROM sales
+GROUP BY PaymentMethod
+ORDER BY orders DESC;
+
+-- 9. Region x Category revenue matrix (for Power BI matrix visual)
+SELECT Region, Category, SUM(Revenue) AS revenue
+FROM sales
+GROUP BY Region, Category
+ORDER BY Region, revenue DESC;
+
+-- 10. Low performing products (bottom 10 by revenue, min 5 orders) — candidates to discontinue
+SELECT Product, Category,
+       COUNT(DISTINCT OrderID) AS orders,
+       SUM(Revenue) AS revenue
+FROM sales
+GROUP BY Product, Category
+HAVING COUNT(DISTINCT OrderID) >= 5
+ORDER BY revenue ASC
+LIMIT 10;
