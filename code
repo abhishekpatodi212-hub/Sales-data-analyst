@@ -1,0 +1,103 @@
+import sys, pandas as pd
+sys.path.insert(0, "/home/claude/portfolio")
+from _xlsx_helpers import *
+from openpyxl import Workbook
+from openpyxl.chart import Reference
+from openpyxl.styles import Font, Alignment
+
+df = pd.read_csv("sales_data.csv")
+n = len(df)
+
+wb = Workbook()
+
+# ---------------- Data sheet ----------------
+ws_data = wb.active
+ws_data.title = "Raw Data"
+last_row = write_df_as_table(ws_data, df, table_name="SalesData")
+ws_data.freeze_panes = "A2"
+
+# ---------------- Summary sheet (formula-driven) ----------------
+ws = wb.create_sheet("Summary")
+ws["A1"] = "SALES DATA ANALYSIS — SUMMARY DASHBOARD"
+ws["A1"].font = title_font(16)
+ws.merge_cells("A1:F1")
+
+# KPI cards
+add_kpi_card(ws, 3, 1, "TOTAL ORDERS", f"=COUNTA('Raw Data'!A2:A{last_row})", "#,##0", 2)
+add_kpi_card(ws, 3, 3, "TOTAL REVENUE (₹)", f"=SUM('Raw Data'!I2:I{last_row})", "₹#,##0", 2)
+add_kpi_card(ws, 3, 5, "TOTAL PROFIT (₹)", f"=SUM('Raw Data'!K2:K{last_row})", "₹#,##0", 2)
+add_kpi_card(ws, 3, 7, "PROFIT MARGIN", f"=SUM('Raw Data'!K2:K{last_row})/SUM('Raw Data'!I2:I{last_row})", "0.0%", 2)
+
+# Region summary table
+regions = sorted(df["Region"].unique())
+ws["A7"] = "Revenue & Profit by Region"
+ws["A7"].font = title_font(12)
+ws["A8"], ws["B8"], ws["C8"] = "Region", "Revenue", "Profit"
+style_header_row(ws, 8, 3, 1)
+for i, reg in enumerate(regions):
+    r = 9 + i
+    ws.cell(row=r, column=1, value=reg)
+    ws.cell(row=r, column=2, value=f"=SUMIF('Raw Data'!C2:C{last_row},A{r},'Raw Data'!I2:I{last_row})").number_format = "₹#,##0"
+    ws.cell(row=r, column=3, value=f"=SUMIF('Raw Data'!C2:C{last_row},A{r},'Raw Data'!K2:K{last_row})").number_format = "₹#,##0"
+region_end = 8 + len(regions)
+
+# Category summary table
+cats = sorted(df["Category"].unique())
+cat_start = region_end + 3
+ws.cell(row=cat_start-1, column=1, value="Revenue & Margin by Category").font = title_font(12)
+ws.cell(row=cat_start, column=1, value="Category")
+ws.cell(row=cat_start, column=2, value="Revenue")
+ws.cell(row=cat_start, column=3, value="Profit")
+ws.cell(row=cat_start, column=4, value="Margin %")
+style_header_row(ws, cat_start, 4, 1)
+for i, cat in enumerate(cats):
+    r = cat_start + 1 + i
+    ws.cell(row=r, column=1, value=cat)
+    ws.cell(row=r, column=2, value=f"=SUMIF('Raw Data'!D2:D{last_row},A{r},'Raw Data'!I2:I{last_row})").number_format = "₹#,##0"
+    ws.cell(row=r, column=3, value=f"=SUMIF('Raw Data'!D2:D{last_row},A{r},'Raw Data'!K2:K{last_row})").number_format = "₹#,##0"
+    ws.cell(row=r, column=4, value=f"=C{r}/B{r}").number_format = "0.0%"
+cat_end = cat_start + len(cats)
+
+# Monthly trend table
+df["Month"] = pd.to_datetime(df["OrderDate"]).dt.to_period("M").astype(str)
+months = sorted(df["Month"].unique())
+month_start = cat_end + 3
+ws.cell(row=month_start-1, column=1, value="Monthly Revenue Trend").font = title_font(12)
+ws.cell(row=month_start, column=1, value="Month")
+ws.cell(row=month_start, column=2, value="Revenue")
+style_header_row(ws, month_start, 2, 1)
+ws_data.cell(row=1, column=14, value="Month")
+for i in range(2, last_row + 1):
+    ws_data.cell(row=i, column=14, value=f"=TEXT(B{i},\"YYYY-MM\")")
+for i, m in enumerate(months):
+    r = month_start + 1 + i
+    ws.cell(row=r, column=1, value=m)
+    ws.cell(row=r, column=2, value=f"=SUMIF('Raw Data'!N2:N{last_row},A{r},'Raw Data'!I2:I{last_row})").number_format = "₹#,##0"
+month_end = month_start + len(months)
+
+set_col_widths(ws, {"A": 22, "B": 16, "C": 16, "D": 12, "E": 16, "F": 16, "G": 16, "H": 16})
+
+# ---------------- Charts sheet ----------------
+wsc = wb.create_sheet("Dashboard Charts")
+wsc["A1"] = "SALES PERFORMANCE — VISUAL DASHBOARD"
+wsc["A1"].font = title_font(16)
+wsc.merge_cells("A1:J1")
+
+data_ref = Reference(ws, min_col=2, max_col=2, min_row=8, max_row=region_end)
+cats_ref = Reference(ws, min_col=1, max_col=1, min_row=9, max_row=region_end)
+add_bar_chart(wsc, "A3", "Revenue by Region", data_ref, cats_ref, y_title="Revenue (₹)", bar_color=BLUE)
+
+data_ref2 = Reference(ws, min_col=2, max_col=2, min_row=cat_start, max_row=cat_end)
+cats_ref2 = Reference(ws, min_col=1, max_col=1, min_row=cat_start+1, max_row=cat_end)
+add_pie_chart(wsc, "K3", "Revenue Share by Category", data_ref2, cats_ref2)
+
+data_ref3 = Reference(ws, min_col=2, max_col=2, min_row=month_start, max_row=month_end)
+cats_ref3 = Reference(ws, min_col=1, max_col=1, min_row=month_start+1, max_row=month_end)
+add_line_chart(wsc, "A21", "Monthly Revenue Trend", data_ref3, cats_ref3, y_title="Revenue (₹)")
+
+data_ref4 = Reference(ws, min_col=3, max_col=4, min_row=cat_start, max_row=cat_end)
+cats_ref4 = Reference(ws, min_col=1, max_col=1, min_row=cat_start+1, max_row=cat_end)
+add_bar_chart(wsc, "K21", "Profit & Margin by Category", data_ref4, cats_ref4, bar_color=NAVY)
+
+wb.save("Sales_Data_Analysis_Dashboard.xlsx")
+print("Saved workbook. last_row=", last_row, "region_end=", region_end, "cat_end", cat_end, "month_end", month_end)
